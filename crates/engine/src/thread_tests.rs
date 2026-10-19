@@ -314,3 +314,45 @@ fn fillet_beside_a_modelled_thread_finishes() {
     let volume_after = volume(&mut s, "Screw");
     assert!(volume_after < volume_before && volume_after > volume_before * 0.99, "{volume_before} -> {volume_after}");
 }
+
+/// Issue 524: a modelled thread down to the end of its face ran a pitch past it, as if past a
+/// free end: into the part under a shoulder, the floor of a blind hole or the rim of a drill
+/// point (where the cut could also fail). Where the part goes on past the end, the groove stops
+/// short of it; past a free end it still runs out (the volumes above).
+#[test]
+fn a_thread_stops_short_of_a_shoulder_or_a_blind_bottom() {
+    // How many of 24 points round the axis at height `z` and radius `r` are in the body.
+    let solid = |s: &Session, body: &str, z: f64, r: f64| {
+        let st = s.model.state();
+        let Some(b) = st.body(body) else { panic!("no {body}") };
+        (0..24).filter(|i| b.body.contains(Vec3::new(r * (PI * *i as f64 / 12.0).cos(), r * (PI * *i as f64 / 12.0).sin(), z))).count()
+    };
+    // Where the hole's (or pin's) wall ends below, before the thread.
+    let bottom = |s: &Session, body: &str, at: Vec3| {
+        let st = s.model.state();
+        let c = st.body(body).and_then(|b| solidcraft_kernel::cylinder_face_at(&b.body, at));
+        let Some(c) = c else { panic!("no cylinder at {at:?}") };
+        (c.axis_point + c.axis * c.start).z.min((c.axis_point + c.axis * c.end).z)
+    };
+
+    // M8 over the whole of an 8 mm pin, down to the base it stands on.
+    let mut s = Session::default();
+    run(&mut s, "solid.box", json!({"corner": [-10, -10, 0], "length": 20, "width": 20, "height": 6, "body_name": "Base"}));
+    run(&mut s, "solid.cylinder", json!({"base": [0, 0, 6], "radius": 4, "height": 10, "body_name": "Pin"}));
+    run(&mut s, "solid.combine", json!({"target": "Base", "tools": ["Pin"], "operation": "join"}));
+    run(&mut s, "solid.thread", json!({"face": [4, 0, 12], "designation": "M8", "modeled": true}));
+    assert_eq!(solid(&s, "Base", 5.9, 3.7), 24, "the base under the shoulder is whole");
+    assert!(solid(&s, "Base", 12.0, 3.7) < 24, "the pin is threaded");
+
+    // M5 in blind holes drilled to its tap drill: with a drill point (this one failed to cut),
+    // and flat.
+    for kind in ["drilled", "simple"] {
+        let mut s = Session::default();
+        run(&mut s, "solid.box", json!({"corner": [-8, -8, 0], "length": 16, "width": 16, "height": 10, "body_name": "Block"}));
+        run(&mut s, "solid.hole", json!({"position": [0, 0, 10], "diameter": 4.2, "depth": 7, "type": kind}));
+        let z = bottom(&s, "Block", Vec3::new(2.1, 0.0, 6.0));
+        run(&mut s, "solid.thread", json!({"face": [2.1, 0, 6], "designation": "M5", "modeled": true}));
+        assert_eq!(solid(&s, "Block", z - 0.1, 2.3), 24, "{kind}: what is past the hole's wall is whole");
+        assert!(solid(&s, "Block", 6.0, 2.3) < 24, "{kind}: the hole is threaded");
+    }
+}
