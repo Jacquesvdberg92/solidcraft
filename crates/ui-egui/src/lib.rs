@@ -77,6 +77,8 @@ pub(crate) mod history_rows;
 mod hole_direction_ui_tests;
 pub(crate) mod hole_place;
 #[cfg(test)]
+mod line_start_snap_tests;
+#[cfg(test)]
 mod hole_place_ui_tests;
 #[cfg(test)]
 mod hole_placement_ui_tests;
